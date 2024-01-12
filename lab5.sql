@@ -1,3 +1,5 @@
+USE iot_db;
+
 -- Створення таблиці VideoMessage
 CREATE TABLE VideoMessage (
     id INT PRIMARY KEY AUTO_INCREMENT,
@@ -14,7 +16,7 @@ CREATE TRIGGER before_insert_VideoMessage
 BEFORE INSERT ON VideoMessage
 FOR EACH ROW
 BEGIN
-    IF NEW.text_chat_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM TextChat WHERE id = NEW.text_chat_id) THEN
+    IF NEW.text_chat_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM text_chat WHERE id = NEW.text_chat_id) THEN
         SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'Foreign key constraint failed: text_chat_id does not exist';
     END IF;
@@ -23,6 +25,9 @@ END;
 //
 
 DELIMITER ;
+
+INSERT INTO VideoMessage(video_message_path, sender, text_chat_id)
+VALUES ('./.', 2, 6)
 
 DELIMITER //
 
@@ -46,21 +51,18 @@ CREATE PROCEDURE InsertMultipleVideoMessages()
 BEGIN
     DECLARE counter INT DEFAULT 1;
 
-    -- Повторюємо вставку 10 разів
     WHILE counter <= 10 DO
-        -- Формуємо рядок у форматі <Noname+№>
         SET @video_message_path = CONCAT('Noname', counter);
 
-        -- Вставка нового запису
         INSERT INTO VideoMessage (video_message_path, sender, text_chat_id)
-        VALUES (@video_message_path, 1, 123);
-
-        -- Збільшуємо лічильник
+        VALUES (@video_message_path, 1, 1);
         SET counter = counter + 1;
     END WHILE;
 END //
 
 DELIMITER ;
+
+CALL InsertMultipleVideoMessages();
 
 -- Створення користувацької функції
 DELIMITER //
@@ -69,34 +71,33 @@ CREATE FUNCTION CalculateChannelStats(
     columnName VARCHAR(255),
     aggregateType VARCHAR(10)
 )
-RETURNS INT
+RETURNS DOUBLE
+NO SQL
 BEGIN
-    DECLARE result INT;
+    DECLARE result DOUBLE;
 
-    -- Генеруємо та виконуємо SQL-запит для отримання статистики
-    SET @sqlQuery = CONCAT('SELECT ', aggregateType, '(', columnName, ') FROM channel');
-    PREPARE stmt FROM @sqlQuery;
-    EXECUTE stmt INTO result;
-    DEALLOCATE PREPARE stmt;
+    CASE aggregateType
+        WHEN 'MAX' THEN
+            SELECT MAX(columnName) INTO result FROM iot_db.channel;
+        WHEN 'MIN' THEN
+            SELECT MIN(columnName) INTO result FROM iot_db.channel;
+        WHEN 'SUM' THEN
+            SELECT SUM(columnName) INTO result FROM iot_db.channel;
+        WHEN 'AVG' THEN
+            SELECT AVG(columnName) INTO result FROM iot_db.channel;
+        ELSE
+            SET result = 0; 
+    END CASE;
 
-    -- Повертаємо результат
     RETURN result;
 END //
 
 DELIMITER ;
 
--- Виклик функції для Max значення
 SELECT CalculateChannelStats('members', 'MAX') AS max_members;
-
--- Виклик функції для Min значення
 SELECT CalculateChannelStats('members', 'MIN') AS min_members;
-
--- Виклик функції для Sum значення
 SELECT CalculateChannelStats('members', 'SUM') AS sum_members;
-
--- Виклик функції для Avg значення
 SELECT CalculateChannelStats('members', 'AVG') AS avg_members;
-
 
 DELIMITER //
 
@@ -116,17 +117,14 @@ BEGIN
             LEAVE read_loop;
         END IF;
 
-        -- Генеруємо ім'я нової таблиці з штампом часу
         SET tableName2 = CONCAT(tableName1, '_', DATE_FORMAT(NOW(), '%Y%m%d%H%i%s'));
 
-        -- Створюємо нову таблицю, структура якої ідентична батьківській
         SET @createTableQuery = CONCAT('CREATE TABLE ', tableName2, ' LIKE ', tableName1);
         PREPARE stmt FROM @createTableQuery;
         EXECUTE stmt;
         DEALLOCATE PREPARE stmt;
 
-        -- Випадковим чином вибираємо, в яку таблицю копіювати дані
-        SET @copyDataQuery = CONCAT('INSERT INTO ', IF(RAND() > 0.5, tableName2, tableName1), ' SELECT * FROM ', tableName1);
+        SET @copyDataQuery = CONCAT('INSERT INTO ', tableName2, ' SELECT * FROM ', tableName1, ' ORDER BY RAND() LIMIT 1');
         PREPARE stmt FROM @copyDataQuery;
         EXECUTE stmt;
         DEALLOCATE PREPARE stmt;
@@ -136,6 +134,8 @@ BEGIN
 END //
 
 DELIMITER ;
+
+
 
 CALL CopyDataWithTimestamp();
 
@@ -171,6 +171,10 @@ END;
 
 DELIMITER ;
 
+INSERT INTO iot_db.user (`username`, `email`)
+VALUES
+    ('llll', 'john@mail.com00');
+
 DELIMITER //
 
 CREATE TRIGGER prevent_delete_user_rows
@@ -184,3 +188,6 @@ END;
 //
 
 DELIMITER ;
+
+
+
